@@ -23,11 +23,9 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 
-#include "logger.h"
-
-void store_file(const std::string& filename, const std::string& str);
 std::string load_file(const std::string& filename);
-std::string emit_gcn(const std::string &filename, const std::string& mcpu, int opt_level);
+void store_file(const std::string& filename, const std::string& str);
+void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_level);
 
 int main(int argc, char** argv) {
     assert(argc == 4);
@@ -40,32 +38,25 @@ int main(int argc, char** argv) {
 
 void store_file(const std::string& filename, const std::string& str) {
     std::ofstream dst_file(filename);
-    if (!dst_file)
+    if (!dst_file) {
+        std::cout << "FATAL : Open File Error@" << __LINE__ << std::endl;
         exit(1);
+    }
     dst_file << str;
     dst_file.close();
 }
 
 std::string load_file(const std::string& filename) {
     std::ifstream src_file(filename);
-    if (!src_file.is_open())
+    if (!src_file.is_open()) {
+        std::cout << "FATAL : Open File Error@" << __LINE__ << std::endl;
         exit(1);
-
+    }
     return std::string(std::istreambuf_iterator<char>(src_file), (std::istreambuf_iterator<char>()));
 }
 
-static std::string get_ocml_config(int target) {
-    std::string config = R"(
-        ; Module anydsl ocml config
-        @__oclc_finite_only_opt = addrspace(4) constant i8 0
-        @__oclc_unsafe_math_opt = addrspace(4) constant i8 0
-        @__oclc_daz_opt = addrspace(4) constant i8 0
-        @__oclc_correctly_rounded_sqrt32 = addrspace(4) constant i8 0
-        @__oclc_ISA_version = addrspace(4) constant i32 )";
-    return config + std::to_string(target);
-}
 
-std::string emit_gcn(const std::string &filename, const std::string& mcpu, int opt_level) {
+void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_level) {
     std::vector<const char*> llvm_args = { "gcn"};
     llvm::cl::ParseCommandLineOptions(llvm_args.size(), llvm_args.data(), "LLVM IR to GCN\n");
 
@@ -84,6 +75,7 @@ std::string emit_gcn(const std::string &filename, const std::string& mcpu, int o
         std::string stream;
         llvm::raw_string_ostream llvm_stream(stream);
         diagnostic_err.print("", llvm_stream);
+        std::cout << "FATAL : ParseIR Error@" << __LINE__ << std::endl;
         exit(1);
     }
 
@@ -93,31 +85,10 @@ std::string emit_gcn(const std::string &filename, const std::string& mcpu, int o
     llvm::TargetOptions options;
     options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
     options.NoTrappingFPMath = true;
-    std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "-trap-handler", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
-
-    // link ocml.amdgcn and ocml config
-    std::string ocml_file = "/opt/rocm/lib/ocml.amdgcn.bc";
-    std::string ocml_config = get_ocml_config(std::stoi(&mcpu[3]));
-    std::unique_ptr<llvm::Module> ocml_module(llvm::parseIRFile(ocml_file, diagnostic_err, llvm_context));
-
-    if (ocml_module == nullptr)
-        exit(1);
-
-    std::unique_ptr<llvm::Module> config_module = llvm::parseIR(llvm::MemoryBuffer::getMemBuffer(ocml_config)->getMemBufferRef(), diagnostic_err, llvm_context);
-
-    if (config_module == nullptr)
-        exit(1);
-
-    // override data layout with the one coming from the target machine
+    //std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "-trap-handler", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
+    std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
+    
     llvm_module->setDataLayout(machine->createDataLayout());
-    ocml_module->setDataLayout(machine->createDataLayout());
-    config_module->setDataLayout(machine->createDataLayout());
-
-    llvm::Linker linker(*llvm_module.get());
-    if (linker.linkInModule(std::move(config_module), llvm::Linker::Flags::None))
-        exit(1);
-    if (linker.linkInModule(std::move(ocml_module), llvm::Linker::Flags::LinkOnlyNeeded))
-        exit(1);
 
     llvm::legacy::FunctionPassManager function_pass_manager(llvm_module.get());
     llvm::legacy::PassManager module_pass_manager;
@@ -137,7 +108,7 @@ std::string emit_gcn(const std::string &filename, const std::string& mcpu, int o
     llvm::SmallString<0> outstr;
     llvm::raw_svector_ostream llvm_stream(outstr);
 
-    machine->addPassesToEmitFile(module_pass_manager, llvm_stream, nullptr, llvm::CGFT_ObjectFile, true);
+    machine->addPassesToEmitFile(module_pass_manager, llvm_stream, nullptr, llvm::CGFT_AssemblyFile, true);
 
     function_pass_manager.doInitialization();
     for (auto func = llvm_module->begin(); func != llvm_module->end(); ++func)
@@ -145,23 +116,10 @@ std::string emit_gcn(const std::string &filename, const std::string& mcpu, int o
     function_pass_manager.doFinalization();
     module_pass_manager.run(*llvm_module);
 
-    std::string obj(outstr.begin(), outstr.end());
-    std::string obj_file = filename + ".o";
-    std::string gcn_file = filename + ".gcn";
-    store_file(obj_file, obj);
-    std::string lld_cmd = "ld.lld -shared " + obj_file + " -o " + gcn_file;
-    if (std::system(lld_cmd.c_str()))
-        exit(1);
-
-    return load_file(gcn_file);
+    std::string asm_str(outstr.begin(), outstr.end());
+    std::string asm_file = filename + ".s";
+    store_file(asm_file, asm_str);
 }
-
-
-
-
-
-
-
 
 
 

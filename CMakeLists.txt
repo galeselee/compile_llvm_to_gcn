@@ -9,5 +9,5 @@ llvm_map_components_to_libnames(libs_amdgpu AMDGPU)
 
 add_executable(run 
                src/main.cpp 
-               src/logger.h)
+               )
 target_link_libraries(run ${libs_amdgpu})
