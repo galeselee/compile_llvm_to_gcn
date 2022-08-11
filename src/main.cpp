@@ -79,14 +79,17 @@ void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_leve
         exit(1);
     }
 
-    auto triple_str = llvm_module->getTargetTriple();
+    // amdgcn-unknown-amdhsa-hcc 
+    // amdgcn--amdhsa-hcc 
+    // amdgcn-unknown-amdhsa-amdgiz 
+    // amdgcn-amd-amdhsa
+    auto triple_str = llvm_module->getTargetTriple(); 
     std::string error_str;
     auto target = llvm::TargetRegistry::lookupTarget(triple_str, error_str);
     llvm::TargetOptions options;
     options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
     options.NoTrappingFPMath = true;
-    //std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "-trap-handler", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
-    std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
+    std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "+xnack", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
     
     llvm_module->setDataLayout(machine->createDataLayout());
 
@@ -108,23 +111,25 @@ void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_leve
     llvm::SmallString<0> outstr;
     llvm::raw_svector_ostream llvm_stream(outstr);
 
-    machine->addPassesToEmitFile(module_pass_manager, llvm_stream, nullptr, llvm::CGFT_AssemblyFile, true);
-
+    machine->addPassesToEmitFile(module_pass_manager, llvm_stream, nullptr, llvm::CGFT_ObjectFile, true);
     function_pass_manager.doInitialization();
     for (auto func = llvm_module->begin(); func != llvm_module->end(); ++func)
         function_pass_manager.run(*func);
     function_pass_manager.doFinalization();
     module_pass_manager.run(*llvm_module);
 
-    std::string asm_str(outstr.begin(), outstr.end());
-    std::string asm_file = filename + ".s";
-    store_file(asm_file, asm_str);
+    std::string obj_str(outstr.begin(), outstr.end());
+    std::string obj_file = filename + ".o";
+    std::string hsaco_file = filename + ".hsaco";
+    store_file(obj_file, obj_str);
+
+    std::string lld_cmd = "ld.lld -shared --no-undefined " + obj_file + " -o " + hsaco_file;
+    if (std::system(lld_cmd.c_str()))
+        std::cout << "FATAL : Gen hsaco file Error@" << __LINE__ << std::endl;
 }
 
-
-
-
-
+// There is some error when i using rocm-3.3
+// It works with rocm-2.9/3.5/3.9/4.0 and higher.
 
 
 

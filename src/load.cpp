@@ -28,12 +28,36 @@ int main(int argc, char **argv) {
     hipError_t err;
     hipModule_t module;
     string gcn = load_file(filename);
-    std::cout << "Sth" << std::endl;
+    std::cout << "[INFO] : hipModuleLoadData" << std::endl;
     err = hipModuleLoadData(&module, gcn.c_str());
     if (err != hipSuccess) {
         cout << err << endl;
         cout << hipGetErrorName(err) << endl;
         exit(1);
     }
+    else {
+        std::cout << "[INFO] : Success" << std::endl;
+    }
+    hipFunction_t func;
+    std::cout << "[INFO] : hipModuleGetFunction" << std::endl;
+    err = hipModuleGetFunction(&func, module, "runtime_retrieve_and_reset_error_code");
+    if (err != hipSuccess) {
+        cout << err << endl;
+        cout << hipGetErrorName(err) << endl;
+        cout << "[FATAL] : Error" << endl;
+        exit(1);
+    }
+    else {
+        cout << "[INFO] : Success" << endl;
+    }
     exit(0);
 }
+
+
+
+
+
+
+
+
+
