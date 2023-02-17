@@ -14,7 +14,7 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/Support/SourceMgr.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/CodeGen.h>
@@ -28,11 +28,17 @@ void store_file(const std::string& filename, const std::string& str);
 void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_level);
 
 int main(int argc, char** argv) {
-    assert(argc == 4);
-    std::string filename = argv[1];
-    std::string mcpu = argv[2];
-    int opt_level = std::stoi(argv[3]);
-    emit_gcn(filename, mcpu, opt_level);
+    if(argc == 4) {
+        std::string filename = argv[1];
+        std::string mcpu = argv[2];
+        int opt_level = std::stoi(argv[3]);
+        emit_gcn(filename, mcpu, opt_level);
+    } else if (argc ==2) {
+        std::string filename = argv[1];
+        std::string mcpu = "gfx1030";
+        int opt_level = 3;
+        emit_gcn(filename, mcpu, opt_level);
+    }
     return 0;
 }
 
@@ -64,6 +70,7 @@ void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_leve
     LLVMInitializeAMDGPUTargetInfo();
     LLVMInitializeAMDGPUTargetMC();
     LLVMInitializeAMDGPUAsmPrinter();
+    LLVMInitializeAMDGPUAsmParser();
 
     const std::string& program = load_file(filename);
 
@@ -79,17 +86,13 @@ void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_leve
         exit(1);
     }
 
-    // amdgcn-unknown-amdhsa-hcc 
-    // amdgcn--amdhsa-hcc 
-    // amdgcn-unknown-amdhsa-amdgiz 
-    // amdgcn-amd-amdhsa
     auto triple_str = llvm_module->getTargetTriple(); 
     std::string error_str;
     auto target = llvm::TargetRegistry::lookupTarget(triple_str, error_str);
     llvm::TargetOptions options;
     options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
     options.NoTrappingFPMath = true;
-    std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "+xnack", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
+    std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(triple_str, mcpu, "", options, llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
     
     llvm_module->setDataLayout(machine->createDataLayout());
 
@@ -100,7 +103,7 @@ void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_leve
     function_pass_manager.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
 
     llvm::PassManagerBuilder builder;
-    builder.OptLevel = opt_level;
+    builder.OptLevel = 3;
     builder.Inliner = llvm::createFunctionInliningPass(builder.OptLevel, 0, false);
     machine->adjustPassManager(builder);
     builder.populateFunctionPassManager(function_pass_manager);
@@ -123,14 +126,7 @@ void emit_gcn(const std::string &filename, const std::string& mcpu, int opt_leve
     std::string hsaco_file = filename + ".hsaco";
     store_file(obj_file, obj_str);
 
-    std::string lld_cmd = "ld.lld -shared --no-undefined " + obj_file + " -o " + hsaco_file;
+    std::string lld_cmd = "ld.lld -shared " + obj_file + " -o " + hsaco_file;
     if (std::system(lld_cmd.c_str()))
         std::cout << "FATAL : Gen hsaco file Error@" << __LINE__ << std::endl;
 }
-
-// There is some error when i using rocm-3.3
-// It works with rocm-2.9/3.5/3.9/4.0 and higher.
-
-
-
-

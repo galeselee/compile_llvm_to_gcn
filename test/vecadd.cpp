@@ -5,6 +5,7 @@
 #include <iostream>
 using namespace std;
 
+extern "C"
 __global__ void add(double *a, double *b, double *c, int n) {
     int idx = hipThreadIdx_x + hipBlockDim_x * hipBlockIdx_x;
     c[idx] = a[idx] + b[idx];

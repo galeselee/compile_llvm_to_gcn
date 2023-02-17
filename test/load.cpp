@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     }
     hipFunction_t func;
     std::cout << "[INFO] : hipModuleGetFunction" << std::endl;
-    err = hipModuleGetFunction(&func, module, "runtime_retrieve_and_reset_error_code");
+    err = hipModuleGetFunction(&func, module, "add");
     if (err != hipSuccess) {
         cout << err << endl;
         cout << hipGetErrorName(err) << endl;
@@ -52,12 +52,3 @@ int main(int argc, char **argv) {
     }
     exit(0);
 }
-
-
-
-
-
-
-
-
-
